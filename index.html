@@ -437,6 +437,7 @@ select.ios-input{cursor:pointer}
     <button class="tool-chip" onclick="switchTool('emi',this)">EMI Calc</button>
     <button class="tool-chip" onclick="switchTool('tax',this)">Tax Estimator</button>
     <button class="tool-chip" onclick="switchTool('sub',this)">Subscriptions</button>
+    <button class="tool-chip" onclick="switchTool('settings',this)">⚙️ Settings</button>
   </div>
   <div id="tool-fd">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:0 16px;margin-bottom:12px">
@@ -478,6 +479,48 @@ select.ios-input{cursor:pointer}
       </div>
     </div>
   </div>
+  <!-- SETTINGS -->
+  <div id="tool-settings" style="display:none">
+    <div style="padding:0 16px">
+
+      <!-- Sample data toggle -->
+      <div style="background:var(--s1);border-radius:20px;padding:18px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--t2);letter-spacing:.6px;text-transform:uppercase;margin-bottom:14px">Data</div>
+        <div class="ios-toggle-row" style="border-top:none;padding:0 0 14px;margin:0;border-bottom:1px solid var(--sep)">
+          <div>
+            <div style="font-size:15px;font-weight:600">Sample / Demo Data</div>
+            <div style="font-size:12px;color:var(--t2);margin-top:2px">Pre-filled transactions, groups & subscriptions</div>
+          </div>
+          <label class="ios-toggle">
+            <input type="checkbox" id="seedToggle" onchange="onSeedToggle(this)">
+            <span class="ios-knob"></span>
+          </label>
+        </div>
+        <div style="padding-top:14px;font-size:13px;color:var(--t2);line-height:1.5" id="seedStatusText"></div>
+      </div>
+
+      <!-- Reset button -->
+      <div style="background:var(--s1);border-radius:20px;padding:18px;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:700;color:var(--t2);letter-spacing:.6px;text-transform:uppercase;margin-bottom:14px">Danger Zone</div>
+        <div style="font-size:14px;color:var(--t2);line-height:1.5;margin-bottom:16px">Permanently deletes all your transactions, groups, splits, reminders and subscriptions. Cannot be undone.</div>
+        <button onclick="resetAllData()" style="width:100%;padding:14px;border-radius:14px;border:none;background:var(--red-bg);color:var(--red);font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;transition:opacity 150ms ease" onmouseover="this.style.background='var(--red)';this.style.color='#fff'" onmouseout="this.style.background='var(--red-bg)';this.style.color='var(--red)'">
+          Reset All Data
+        </button>
+      </div>
+
+      <!-- App info -->
+      <div style="background:var(--s1);border-radius:20px;padding:18px">
+        <div style="font-size:13px;font-weight:700;color:var(--t2);letter-spacing:.6px;text-transform:uppercase;margin-bottom:12px">About</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:var(--t2)">App</span><span style="font-weight:600">AboutMoney</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:var(--t2)">Storage</span><span style="font-weight:600" id="storageSizeLabel">—</span></div>
+          <div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:var(--t2)">Data location</span><span style="font-weight:600">Device only</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <div id="tool-sub" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:0 16px;margin-bottom:12px">
       <div style="font-size:17px;font-weight:700">Subscriptions</div>
@@ -1036,10 +1079,63 @@ function renderBudget(){
 // ═══ TOOLS ═══
 function switchTool(id,btn){
   activeTool=id;
-  ['fd','emi','tax','sub'].forEach(x=>document.getElementById('tool-'+x).style.display=x===id?'block':'none');
+  ['fd','emi','tax','sub','settings'].forEach(x=>document.getElementById('tool-'+x).style.display=x===id?'block':'none');
   if(btn){document.querySelectorAll('.tool-chip').forEach(b=>b.classList.remove('active'));btn.classList.add('active')}
   if(id==='fd')renderFDs();
   if(id==='sub')renderSubs();
+  if(id==='settings')renderSettings();
+}
+
+// ═══ SETTINGS ═══
+function renderSettings(){
+  const isSeeded=get('seeded',false);
+  const tog=document.getElementById('seedToggle');
+  if(tog)tog.checked=isSeeded;
+  const statusEl=document.getElementById('seedStatusText');
+  if(statusEl)statusEl.textContent=isSeeded
+    ?'Sample data is active. Toggle off to clear it and start with a clean slate.'
+    :'No sample data. Your transactions are real entries only.';
+  // Storage size
+  let total=0;
+  try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('am3_'))total+=((localStorage.getItem(k)||'').length*2)}}catch{}
+  const sizeEl=document.getElementById('storageSizeLabel');
+  if(sizeEl)sizeEl.textContent=total>1024?(total/1024).toFixed(1)+' KB':total+' B';
+}
+
+function onSeedToggle(el){
+  if(el.checked){
+    // Load seed data
+    const keys=['transactions','groups','quickSplits','budgets','subs','fdReminders','monthBudget','friends'];
+    keys.forEach(k=>localStorage.removeItem('am3_'+k));
+    localStorage.removeItem('am3_seeded');
+    seed();
+    renderSettings();
+    showToast('Sample data loaded ✓');
+    renderHome();
+  } else {
+    if(!confirm('This will delete all sample transactions, groups, and splits. Continue?')){el.checked=true;return}
+    clearAllData(false);
+    showToast('Sample data cleared');
+    renderSettings();
+    renderHome();
+  }
+}
+
+function clearAllData(reload){
+  const keys=[];
+  for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.startsWith('am3_'))keys.push(k)}
+  keys.forEach(k=>localStorage.removeItem(k));
+  if(reload)location.reload();
+}
+
+function resetAllData(){
+  if(!confirm('Reset everything? All your transactions, groups, splits, reminders and subscriptions will be permanently deleted.')){return}
+  clearAllData(false);
+  // Re-init to empty state
+  homeOff=0;expOff=0;activeFilter='ALL';expTab='all';splitTab='splits';
+  goTo('home');
+  showToast('All data cleared');
+  setTimeout(renderSettings,100);
 }
 function saveFD(){
   const name=document.getElementById('inFDName').value.trim();
